@@ -864,6 +864,214 @@ curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"
 
 ---
 
+## List Chats
+
+Returns a list of chats from message history for the authenticated user, enriched with contact names. Results are ordered by most recent message.
+
+endpoint: _/chat/list_
+
+method: **GET**
+
+**Query Parameters:**
+- `limit` (optional): Maximum number of chats to return (default: 100)
+
+```
+curl -s -X GET -H 'Token: 1234ABCD' http://localhost:8080/chat/list?limit=50
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": [
+    {
+      "chat_jid": "5491155553934@s.whatsapp.net",
+      "last_message_time": "2024-12-25T10:30:00Z",
+      "message_count": 42,
+      "name": "John Doe"
+    },
+    {
+      "chat_jid": "120362023605733675@g.us",
+      "last_message_time": "2024-12-24T18:00:00Z",
+      "message_count": 150,
+      "name": "Super Group"
+    }
+  ],
+  "success": true
+}
+```
+
+---
+
+## Mark chat as unread
+
+Marks a chat as unread in WhatsApp.
+
+endpoint: _/chat/markunread_
+
+method: **POST**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| jid   | Yes      | Chat JID to mark as unread |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"jid":"5491155553934@s.whatsapp.net"}' http://localhost:8080/chat/markunread
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "success": true,
+    "message": "Chat marked as unread"
+  },
+  "success": true
+}
+```
+
+---
+
+## Pin/Unpin chat
+
+Pins or unpins a chat in WhatsApp.
+
+endpoint: _/chat/pin_
+
+method: **POST**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| jid   | Yes      | Chat JID to pin/unpin |
+| pin   | Yes      | `true` to pin, `false` to unpin |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"jid":"5491155553934@s.whatsapp.net","pin":true}' http://localhost:8080/chat/pin
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "success": true,
+    "message": "Chat pinned"
+  },
+  "success": true
+}
+```
+
+---
+
+## Labels
+
+The following _label_ endpoints allow you to manage WhatsApp labels (available on WhatsApp Business).
+
+## Create/Edit label
+
+Creates a new label or edits an existing one.
+
+endpoint: _/label/edit_
+
+method: **POST**
+
+| Param       | Required | Description |
+|-------------|----------|-------------|
+| label_id    | Yes      | Label identifier |
+| label_name  | No       | Display name for the label |
+| label_color | No       | Color index for the label |
+| deleted     | No       | Set to `true` to delete the label |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"label_id":"1","label_name":"Important","label_color":0,"deleted":false}' http://localhost:8080/label/edit
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "success": true,
+    "message": "Label updated"
+  },
+  "success": true
+}
+```
+
+---
+
+## Assign/Remove label from chat
+
+Assigns a label to a chat or removes it.
+
+endpoint: _/label/chat_
+
+method: **POST**
+
+| Param    | Required | Description |
+|----------|----------|-------------|
+| jid      | Yes      | Chat JID |
+| label_id | Yes      | Label identifier |
+| labeled  | Yes      | `true` to assign, `false` to remove |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"jid":"5491155553934@s.whatsapp.net","label_id":"1","labeled":true}' http://localhost:8080/label/chat
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "success": true,
+    "message": "Label assigned to chat"
+  },
+  "success": true
+}
+```
+
+---
+
+## Assign/Remove label from message
+
+Assigns a label to a specific message or removes it.
+
+endpoint: _/label/message_
+
+method: **POST**
+
+| Param      | Required | Description |
+|------------|----------|-------------|
+| jid        | Yes      | Chat JID where the message is |
+| label_id   | Yes      | Label identifier |
+| message_id | Yes      | Message identifier |
+| labeled    | Yes      | `true` to assign, `false` to remove |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"jid":"5491155553934@s.whatsapp.net","label_id":"1","message_id":"3EB06F9067F80BAB89FF","labeled":true}' http://localhost:8080/label/message
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "success": true,
+    "message": "Label assigned to message"
+  },
+  "success": true
+}
+```
+
+---
+
 ## React to messages
 
 Sends a reaction for an existing message. Id is the message Id to react to, if its your own message, prefix the Id with the string 'me:'

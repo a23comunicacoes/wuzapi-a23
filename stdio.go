@@ -460,6 +460,28 @@ func (ss *stdioServer) routeRequest(req *jsonRpcRequest) {
 		httpMethod = "DELETE"
 		httpPath = "/webhook"
 
+	// Chat management
+	case "chat.list":
+		httpMethod = "GET"
+		httpPath = "/chat/list"
+	case "chat.markunread":
+		httpMethod = "POST"
+		httpPath = "/chat/markunread"
+	case "chat.pin":
+		httpMethod = "POST"
+		httpPath = "/chat/pin"
+
+	// Labels
+	case "label.edit":
+		httpMethod = "POST"
+		httpPath = "/label/edit"
+	case "label.chat":
+		httpMethod = "POST"
+		httpPath = "/label/chat"
+	case "label.message":
+		httpMethod = "POST"
+		httpPath = "/label/message"
+
 	default:
 		ss.sendError(req.ID, 404, fmt.Sprintf("unknown method: %s", req.Method))
 		return

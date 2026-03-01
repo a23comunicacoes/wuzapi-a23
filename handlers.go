@@ -6558,3 +6558,412 @@ func (s *server) DownloadSticker() http.HandlerFunc {
 		return
 	}
 }
+
+// ListChats returns a list of chats from message_history for the authenticated user
+func (s *server) ListChats() http.HandlerFunc {
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		limit := 100
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+				limit = parsed
+			}
+		}
+
+		var query string
+		if s.db.DriverName() == "postgres" {
+			query = `
+				SELECT chat_jid, MAX(timestamp) as last_message_time, COUNT(*) as message_count
+				FROM message_history
+				WHERE user_id = $1
+				GROUP BY chat_jid
+				ORDER BY last_message_time DESC
+				LIMIT $2`
+		} else {
+			query = `
+				SELECT chat_jid, MAX(timestamp) as last_message_time, COUNT(*) as message_count
+				FROM message_history
+				WHERE user_id = ?
+				GROUP BY chat_jid
+				ORDER BY last_message_time DESC
+				LIMIT ?`
+		}
+
+		type ChatEntry struct {
+			ChatJID         string `json:"chat_jid" db:"chat_jid"`
+			LastMessageTime string `json:"last_message_time" db:"last_message_time"`
+			MessageCount    int    `json:"message_count" db:"message_count"`
+			Name            string `json:"name,omitempty"`
+		}
+
+		var chats []ChatEntry
+		err := s.db.Select(&chats, query, txtid, limit)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, fmt.Errorf("failed to get chats: %w", err))
+			return
+		}
+
+		// Enrich with contact names
+		contacts, cerr := client.Store.Contacts.GetAllContacts(context.Background())
+		if cerr == nil {
+			for i, chat := range chats {
+				jid, perr := types.ParseJID(chat.ChatJID)
+				if perr == nil {
+					if contact, ok := contacts[jid]; ok {
+						if contact.FullName != "" {
+							chats[i].Name = contact.FullName
+						} else if contact.PushName != "" {
+							chats[i].Name = contact.PushName
+						} else if contact.BusinessName != "" {
+							chats[i].Name = contact.BusinessName
+						}
+					}
+				}
+			}
+		}
+
+		// Format timestamps
+		for i, chat := range chats {
+			if parsedTime, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", chat.LastMessageTime); err == nil {
+				chats[i].LastMessageTime = parsedTime.Format(time.RFC3339Nano)
+			} else if parsedTime, err := time.Parse(time.RFC3339Nano, chat.LastMessageTime); err == nil {
+				chats[i].LastMessageTime = parsedTime.Format(time.RFC3339Nano)
+			} else {
+				chats[i].LastMessageTime = strings.Split(chat.LastMessageTime, " m=")[0]
+			}
+		}
+
+		responseJson, err := json.Marshal(chats)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
+// MarkUnread marks a chat as unread
+func (s *server) MarkUnread() http.HandlerFunc {
+
+	type requestMarkUnreadStruct struct {
+		Jid string `json:"jid"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestMarkUnreadStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildMarkChatAsRead(chatJID, false, time.Time{}, nil))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to mark chat as unread: %s", err)))
+			return
+		}
+
+		response := map[string]interface{}{
+			"success": true,
+			"message": "Chat marked as unread",
+		}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
+// PinChat pins or unpins a chat
+func (s *server) PinChat() http.HandlerFunc {
+
+	type requestPinStruct struct {
+		Jid string `json:"jid"`
+		Pin bool   `json:"pin"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestPinStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildPin(chatJID, t.Pin))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to pin chat: %s", err)))
+			return
+		}
+
+		statusText := "Chat pinned"
+		if !t.Pin {
+			statusText = "Chat unpinned"
+		}
+		response := map[string]interface{}{
+			"success": true,
+			"message": statusText,
+		}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
+// LabelEdit creates, updates, or deletes a label
+func (s *server) LabelEdit() http.HandlerFunc {
+
+	type requestLabelEditStruct struct {
+		LabelID    string `json:"label_id"`
+		LabelName  string `json:"label_name"`
+		LabelColor int32  `json:"label_color"`
+		Deleted    bool   `json:"deleted"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestLabelEditStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.LabelID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing label_id in Payload"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildLabelEdit(t.LabelID, t.LabelName, t.LabelColor, t.Deleted))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to edit label: %s", err)))
+			return
+		}
+
+		response := map[string]interface{}{
+			"success": true,
+			"message": "Label updated",
+		}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
+// LabelChat assigns or removes a label from a chat
+func (s *server) LabelChat() http.HandlerFunc {
+
+	type requestLabelChatStruct struct {
+		Jid     string `json:"jid"`
+		LabelID string `json:"label_id"`
+		Labeled bool   `json:"labeled"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestLabelChatStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+		if t.LabelID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing label_id in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildLabelChat(chatJID, t.LabelID, t.Labeled))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to label chat: %s", err)))
+			return
+		}
+
+		statusText := "Label assigned to chat"
+		if !t.Labeled {
+			statusText = "Label removed from chat"
+		}
+		response := map[string]interface{}{
+			"success": true,
+			"message": statusText,
+		}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
+// LabelMessage assigns or removes a label from a specific message
+func (s *server) LabelMessage() http.HandlerFunc {
+
+	type requestLabelMessageStruct struct {
+		Jid       string `json:"jid"`
+		LabelID   string `json:"label_id"`
+		MessageID string `json:"message_id"`
+		Labeled   bool   `json:"labeled"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestLabelMessageStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+		if t.LabelID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing label_id in Payload"))
+			return
+		}
+		if t.MessageID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing message_id in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildLabelMessage(chatJID, t.LabelID, t.MessageID, t.Labeled))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to label message: %s", err)))
+			return
+		}
+
+		statusText := "Label assigned to message"
+		if !t.Labeled {
+			statusText = "Label removed from message"
+		}
+		response := map[string]interface{}{
+			"success": true,
+			"message": statusText,
+		}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}

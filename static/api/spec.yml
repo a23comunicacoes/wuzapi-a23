@@ -925,6 +925,78 @@ paths:
             application/json:
               schema:
                 example: { "code": 200, "data": { "Details": "Message(s) marked as read" }, "success": true }
+  /chat/list:
+    get:
+      tags:
+        - Chat
+      summary: List chats
+      description: Returns a list of chats from message history for the authenticated user, enriched with contact names. Results are ordered by most recent message.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of chats to return
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example:
+                  code: 200
+                  data:
+                    - chat_jid: "5491155553934@s.whatsapp.net"
+                      last_message_time: "2024-12-25T10:30:00Z"
+                      message_count: 42
+                      name: "John Doe"
+                  success: true
+  /chat/markunread:
+    post:
+      tags:
+        - Chat
+      summary: Mark chat as unread
+      description: Marks a chat as unread in WhatsApp
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/MarkUnread'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: { "code": 200, "data": { "success": true, "message": "Chat marked as unread" }, "success": true }
+  /chat/pin:
+    post:
+      tags:
+        - Chat
+      summary: Pin or unpin a chat
+      description: Pins or unpins a chat in WhatsApp
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/PinChat'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: { "code": 200, "data": { "success": true, "message": "Chat pinned" }, "success": true }
   /chat/react:
     post:
       tags:
@@ -1986,6 +2058,70 @@ paths:
               schema:
                 example: { "code": 200, "data": { "Details": "Participants updated successfully" }, "success": true }
 
+  /label/edit:
+    post:
+      tags:
+        - Label
+      summary: Create or edit a label
+      description: Creates a new label, updates an existing one, or deletes it (WhatsApp Business feature)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/LabelEdit'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: { "code": 200, "data": { "success": true, "message": "Label updated" }, "success": true }
+  /label/chat:
+    post:
+      tags:
+        - Label
+      summary: Assign or remove a label from a chat
+      description: Assigns a label to a chat or removes it (WhatsApp Business feature)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/LabelChat'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: { "code": 200, "data": { "success": true, "message": "Label assigned to chat" }, "success": true }
+  /label/message:
+    post:
+      tags:
+        - Label
+      summary: Assign or remove a label from a message
+      description: Assigns a label to a specific message or removes it (WhatsApp Business feature)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/LabelMessage'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: { "code": 200, "data": { "success": true, "message": "Label assigned to message" }, "success": true }
+
 definitions:
   ContextInfo:
     type: object
@@ -2942,6 +3078,94 @@ definitions:
         type: integer
         description: Number of days to retain files (0 for no expiration)
         example: 30
+
+  MarkUnread:
+    type: object
+    required:
+      - jid
+    properties:
+      jid:
+        type: string
+        example: "5491155553934@s.whatsapp.net"
+        description: "Chat JID to mark as unread"
+  PinChat:
+    type: object
+    required:
+      - jid
+      - pin
+    properties:
+      jid:
+        type: string
+        example: "5491155553934@s.whatsapp.net"
+        description: "Chat JID to pin/unpin"
+      pin:
+        type: boolean
+        example: true
+        description: "true to pin, false to unpin"
+  LabelEdit:
+    type: object
+    required:
+      - label_id
+    properties:
+      label_id:
+        type: string
+        example: "1"
+        description: "Label identifier"
+      label_name:
+        type: string
+        example: "Important"
+        description: "Display name for the label"
+      label_color:
+        type: integer
+        example: 0
+        description: "Color index for the label"
+      deleted:
+        type: boolean
+        example: false
+        description: "Set to true to delete the label"
+  LabelChat:
+    type: object
+    required:
+      - jid
+      - label_id
+      - labeled
+    properties:
+      jid:
+        type: string
+        example: "5491155553934@s.whatsapp.net"
+        description: "Chat JID"
+      label_id:
+        type: string
+        example: "1"
+        description: "Label identifier"
+      labeled:
+        type: boolean
+        example: true
+        description: "true to assign label, false to remove"
+  LabelMessage:
+    type: object
+    required:
+      - jid
+      - label_id
+      - message_id
+      - labeled
+    properties:
+      jid:
+        type: string
+        example: "5491155553934@s.whatsapp.net"
+        description: "Chat JID where the message is"
+      label_id:
+        type: string
+        example: "1"
+        description: "Label identifier"
+      message_id:
+        type: string
+        example: "3EB06F9067F80BAB89FF"
+        description: "Message identifier"
+      labeled:
+        type: boolean
+        example: true
+        description: "true to assign label, false to remove"
 
 components:
   securitySchemes:

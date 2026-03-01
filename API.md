@@ -904,6 +904,38 @@ Response:
 
 ---
 
+## Archive/Unarchive chat
+
+Archives or unarchives a chat in WhatsApp.
+
+endpoint: _/chat/archive_
+
+method: **POST**
+
+| Param   | Required | Description |
+|---------|----------|-------------|
+| jid     | Yes      | Chat JID to archive/unarchive |
+| archive | Yes      | `true` to archive, `false` to unarchive |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"jid":"5491155553934@s.whatsapp.net","archive":true}' http://localhost:8080/chat/archive
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "success": true,
+    "message": "Chat archived"
+  },
+  "success": true
+}
+```
+
+---
+
 ## Mark chat as unread
 
 Marks a chat as unread in WhatsApp.
@@ -1065,6 +1097,36 @@ Response:
   "data": {
     "success": true,
     "message": "Label assigned to message"
+  },
+  "success": true
+}
+```
+
+---
+
+## Set Status Message
+
+Updates the current user's status text, which is shown in the "About" section in the user profile.
+
+endpoint: _/status/set/text_
+
+method: **POST**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| Body  | Yes      | Status text to set |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"Body":"Hello World"}' http://localhost:8080/status/set/text
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "Details": "Set"
   },
   "success": true
 }

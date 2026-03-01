@@ -841,7 +841,7 @@ paths:
             application/json:
               schema:
                 example: { "code": 200, "data": { "5491122223333@s.whatsapp.net": { "BusinessName": "", "FirstName": "", "Found": true, "FullName": "", "PushName": "FOP2" }, "549113334444@s.whatsapp.net": { "BusinessName": "", "FirstName": "", "Found": true, "FullName": "", "PushName": "Asternic" } } }
-  /user/lid/{phone}:
+  /user/lid/{jid}:
     get:
       tags:
         - User
@@ -850,7 +850,7 @@ paths:
         Returns the **JID** (WhatsApp ID) and **LID** (Linked Device ID) associated with a given phone number.
         <br>Use this endpoint to identify contacts within WhatsApp.
       parameters:
-        - name: phone
+        - name: jid
           in: path
           required: true
           description: Phone number in international format (without the + sign)
@@ -955,6 +955,27 @@ paths:
                       message_count: 42
                       name: "John Doe"
                   success: true
+  /chat/archive:
+    post:
+      tags:
+        - Chat
+      summary: Archive or unarchive a chat
+      description: Archives or unarchives a chat in WhatsApp
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/ArchiveChat'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: { "code": 200, "data": { "success": true, "message": "Chat archived" }, "success": true }
   /chat/markunread:
     post:
       tags:
@@ -3107,6 +3128,20 @@ definitions:
         description: Number of days to retain files (0 for no expiration)
         example: 30
 
+  ArchiveChat:
+    type: object
+    required:
+      - jid
+      - archive
+    properties:
+      jid:
+        type: string
+        example: "5491155553934@s.whatsapp.net"
+        description: "Chat JID to archive/unarchive"
+      archive:
+        type: boolean
+        example: true
+        description: "true to archive, false to unarchive"
   MarkUnread:
     type: object
     required:

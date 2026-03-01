@@ -39,6 +39,27 @@ go test -run TestFunctionName ./...
 
 Tests are minimal — only `stdio_test.go` exists currently.
 
+## MANDATORY: API Documentation Requirements
+
+**Every new or modified endpoint MUST be documented in ALL THREE places:**
+
+1. **`static/api/spec.yml`** — OpenAPI/Swagger specification. Add the path under `paths:` and the request schema under `definitions:`. Field names MUST match the Go handler struct json tags exactly.
+2. **`API.md`** — Human-readable API documentation. Add endpoint description, parameter table, curl example, and response example.
+3. **MCP (`/root/mcp-wuzapi/index.js`)** — MCP tool definition. Field names MUST match the Go handler struct json tags exactly (e.g., `jid` not `phone`, `label_id` not `labelid`, `call_id` not `callid`).
+
+**Field naming rules:**
+- Always check the Go handler struct in `handlers.go` for the exact json tag names
+- If the struct has explicit `json:"field_name"` tags, use those exact names
+- If the struct has no json tags, Go's JSON decoder is case-insensitive, but prefer the exact Go field name casing
+- Never invent field names — always derive them from the handler struct
+
+**Before considering an endpoint complete, verify:**
+- [ ] Route exists in `routes.go`
+- [ ] Handler with request struct exists in `handlers.go`
+- [ ] Path and schema documented in `static/api/spec.yml`
+- [ ] Endpoint documented in `API.md` with curl example
+- [ ] MCP tool added to `/root/mcp-wuzapi/index.js` with correct field names
+
 ## Architecture
 
 **Single-package Go application** — all code lives in `package main` at the repository root. No internal packages.

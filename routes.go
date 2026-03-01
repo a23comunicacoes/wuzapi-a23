@@ -135,6 +135,9 @@ func (s *server) routes() {
 
 	s.router.Handle("/chat/presence", c.Then(s.ChatPresence())).Methods("POST")
 	s.router.Handle("/chat/markread", c.Then(s.MarkRead())).Methods("POST")
+	s.router.Handle("/chat/list", c.Then(s.ListChats())).Methods("GET")
+	s.router.Handle("/chat/markunread", c.Then(s.MarkUnread())).Methods("POST")
+	s.router.Handle("/chat/pin", c.Then(s.PinChat())).Methods("POST")
 	s.router.Handle("/chat/downloadimage", c.Then(s.DownloadImage())).Methods("POST")
 	s.router.Handle("/chat/downloadvideo", c.Then(s.DownloadVideo())).Methods("POST")
 	s.router.Handle("/chat/downloadaudio", c.Then(s.DownloadAudio())).Methods("POST")
@@ -156,6 +159,10 @@ func (s *server) routes() {
 	s.router.Handle("/group/join", c.Then(s.GroupJoin())).Methods("POST")
 	s.router.Handle("/group/inviteinfo", c.Then(s.GetGroupInviteInfo())).Methods("POST")
 	s.router.Handle("/group/updateparticipants", c.Then(s.UpdateGroupParticipants())).Methods("POST")
+
+	s.router.Handle("/label/edit", c.Then(s.LabelEdit())).Methods("POST")
+	s.router.Handle("/label/chat", c.Then(s.LabelChat())).Methods("POST")
+	s.router.Handle("/label/message", c.Then(s.LabelMessage())).Methods("POST")
 
 	s.router.Handle("/newsletter/list", c.Then(s.ListNewsletter())).Methods("GET")
 

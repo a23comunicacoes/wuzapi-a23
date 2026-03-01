@@ -37,7 +37,20 @@ go test ./...
 go test -run TestFunctionName ./...
 ```
 
-Tests are minimal — only `stdio_test.go` exists currently.
+Tests are minimal — `stdio_test.go` and `handlers_new_test.go` exist currently.
+
+## Deployment
+
+This project runs in Docker on the production server. **After any code change, you must rebuild the Docker image for changes to take effect** (including API documentation in `static/api/spec.yml`).
+
+```bash
+# After committing and pushing:
+docker compose up --build -d wuzapi-server
+```
+
+The Dockerfile is a multi-stage build (Go builder → Debian slim runtime) that copies the compiled binary **and the `static/` directory** into the image. This means changes to `static/api/spec.yml`, `API.md`, or any static file require a Docker rebuild.
+
+The Swagger UI is served at `/api` from `static/api/spec.yml`. The full documentation page at `/docs` is served from `static/docs/index.html`.
 
 ## Architecture
 

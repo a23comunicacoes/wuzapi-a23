@@ -131,6 +131,39 @@ Response:
 
 ---
 
+## Serve Local Media
+
+Serves media files stored locally when `media_delivery` is set to `local`. No authentication required — webhook receivers can fetch files directly using the `mediaURL` from the webhook payload.
+
+Endpoint: _/media/{userid}/{filename}_
+
+Method: **GET**
+
+| Parameter | Type   | Description                                   |
+|-----------|--------|-----------------------------------------------|
+| userid    | string | User directory identifier (e.g. `user_1`)     |
+| filename  | string | Media filename (message ID + extension)       |
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/media/user_1/3EB0A1B2C3D4E5F6.jpg --output image.jpg
+```
+
+**Responses:**
+
+| Code | Description            |
+|------|------------------------|
+| 200  | Media file content     |
+| 400  | Invalid filename/userid|
+| 404  | File not found         |
+
+**Environment variable:**
+
+Set `WUZAPI_BASE_URL` to override the base URL used in webhook `mediaURL` fields (useful behind proxy/ngrok). Default: `http://{address}:{port}`.
+
+---
+
 ## Webhook
 
 The following _webhook_ endpoints are used to get or set the webhook that will be called whenever a message or event is received. Available event types are:
@@ -1594,7 +1627,7 @@ Configure S3 storage settings for the authenticated user.
 - `secret_key`: S3 secret access key
 - `path_style`: Use path-style URLs (required for MinIO)
 - `public_url`: Custom public URL for accessing files (optional)
-- `media_delivery`: Delivery method - "base64", "s3", or "both"
+- `media_delivery`: Delivery method - "base64", "s3", "both", or "local"
 - `retention_days`: Days to retain files (0 for no expiration)
 
 ### Get S3 Configuration

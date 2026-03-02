@@ -421,7 +421,7 @@ func (s *server) startClient(userID string, textjid string, token string, subscr
 	if *waDebug == "DEBUG" {
 		httpClient.SetDebug(true)
 	}
-	httpClient.SetTimeout(30 * time.Second)
+	httpClient.SetTimeout(150 * time.Second)
 	httpClient.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
 	httpClient.OnError(func(req *resty.Request, err error) {
 		if v, ok := err.(*resty.ResponseError); ok {
@@ -810,7 +810,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			if err != nil {
 				log.Error().Err(err).Msg("onMessage Failed to get S3 config from DB as it was not on cache")
 				s3Config.Enabled = "false"
-				s3Config.MediaDelivery = "base64"
+				s3Config.MediaDelivery = "local"
 			}
 		} else {
 			s3Config.Enabled = myuserinfo.(Values).Get("S3Enabled")
@@ -906,15 +906,28 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
 
+				// Serve media via local URL if configured
+				if s3Config.MediaDelivery == "local" {
+					baseURL := os.Getenv("WUZAPI_BASE_URL")
+					if baseURL == "" {
+						baseURL = "http://" + *address + ":" + *port
+					}
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mimeType"] = img.GetMimetype()
+					postmap["fileName"] = filepath.Base(tmpPath)
+				}
+
 				// Log the successful conversion
 				log.Info().Str("path", tmpPath).Msg("Image processed")
 
-				// Delete the temporary file
-				err = os.Remove(tmpPath)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to delete temporary file")
-				} else {
-					log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+				// Delete the temporary file (skip if local delivery to keep serving)
+				if s3Config.MediaDelivery != "local" {
+					err = os.Remove(tmpPath)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to delete temporary file")
+					} else {
+						log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+					}
 				}
 			}
 
@@ -994,15 +1007,28 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
 
+				// Serve media via local URL if configured
+				if s3Config.MediaDelivery == "local" {
+					baseURL := os.Getenv("WUZAPI_BASE_URL")
+					if baseURL == "" {
+						baseURL = "http://" + *address + ":" + *port
+					}
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mimeType"] = audio.GetMimetype()
+					postmap["fileName"] = filepath.Base(tmpPath)
+				}
+
 				// Log the successful conversion
 				log.Info().Str("path", tmpPath).Msg("Audio processed")
 
-				// Delete the temporary file
-				err = os.Remove(tmpPath)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to delete temporary file")
-				} else {
-					log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+				// Delete the temporary file (skip if local delivery to keep serving)
+				if s3Config.MediaDelivery != "local" {
+					err = os.Remove(tmpPath)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to delete temporary file")
+					} else {
+						log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+					}
 				}
 			}
 
@@ -1087,15 +1113,28 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
 
+				// Serve media via local URL if configured
+				if s3Config.MediaDelivery == "local" {
+					baseURL := os.Getenv("WUZAPI_BASE_URL")
+					if baseURL == "" {
+						baseURL = "http://" + *address + ":" + *port
+					}
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mimeType"] = document.GetMimetype()
+					postmap["fileName"] = filepath.Base(tmpPath)
+				}
+
 				// Log the successful conversion
 				log.Info().Str("path", tmpPath).Msg("Document processed")
 
-				// Delete the temporary file
-				err = os.Remove(tmpPath)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to delete temporary file")
-				} else {
-					log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+				// Delete the temporary file (skip if local delivery to keep serving)
+				if s3Config.MediaDelivery != "local" {
+					err = os.Remove(tmpPath)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to delete temporary file")
+					} else {
+						log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+					}
 				}
 			}
 
@@ -1169,15 +1208,28 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
 
+				// Serve media via local URL if configured
+				if s3Config.MediaDelivery == "local" {
+					baseURL := os.Getenv("WUZAPI_BASE_URL")
+					if baseURL == "" {
+						baseURL = "http://" + *address + ":" + *port
+					}
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mimeType"] = video.GetMimetype()
+					postmap["fileName"] = filepath.Base(tmpPath)
+				}
+
 				// Log the successful conversion
 				log.Info().Str("path", tmpPath).Msg("Video processed")
 
-				// Delete the temporary file
-				err = os.Remove(tmpPath)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to delete temporary file")
-				} else {
-					log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+				// Delete the temporary file (skip if local delivery to keep serving)
+				if s3Config.MediaDelivery != "local" {
+					err = os.Remove(tmpPath)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to delete temporary file")
+					} else {
+						log.Info().Str("path", tmpPath).Msg("Temporary file deleted")
+					}
 				}
 			}
 
@@ -1246,12 +1298,26 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
 
+				// Serve media via local URL if configured
+				if s3Config.MediaDelivery == "local" {
+					baseURL := os.Getenv("WUZAPI_BASE_URL")
+					if baseURL == "" {
+						baseURL = "http://" + *address + ":" + *port
+					}
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mimeType"] = sticker.GetMimetype()
+					postmap["fileName"] = filepath.Base(tmpPath)
+				}
+
 				// useful metadata (optional, but handy)
 				postmap["isSticker"] = true
 				postmap["stickerAnimated"] = sticker.GetIsAnimated()
 
-				if err := os.Remove(tmpPath); err != nil {
-					log.Error().Err(err).Msg("Failed to delete temporary file")
+				// Delete the temporary file (skip if local delivery to keep serving)
+				if s3Config.MediaDelivery != "local" {
+					if err := os.Remove(tmpPath); err != nil {
+						log.Error().Err(err).Msg("Failed to delete temporary file")
+					}
 				}
 			}
 

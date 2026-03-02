@@ -533,7 +533,7 @@ func ProcessOutgoingMedia(userID string, contactJID string, messageID string, da
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get S3 config")
 		s3Config.Enabled = false
-		s3Config.MediaDelivery = "base64"
+		s3Config.MediaDelivery = "local"
 	}
 
 	// Process S3 upload if enabled

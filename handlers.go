@@ -1532,6 +1532,7 @@ func (s *server) SendVideo() http.HandlerFunc {
 
 		var uploaded whatsmeow.UploadResponse
 		var filedata []byte
+		var detectedMimeType string
 
 		if t.Video[0:4] == "data" {
 			var dataURL, err = dataurl.DecodeString(t.Video)
@@ -1540,29 +1541,28 @@ func (s *server) SendVideo() http.HandlerFunc {
 				return
 			} else {
 				filedata = dataURL.Data
-
+				detectedMimeType = dataURL.MediaType.ContentType()
 			}
 		} else if isHTTPURL(t.Video) {
 			data, ct, err := fetchURLBytes(r.Context(), t.Video, openGraphImageMaxBytes)
 			if err != nil {
-				s.Respond(w, r, http.StatusBadRequest, errors.New(fmt.Sprintf("failed to fetch image from url: %v", err)))
+				s.Respond(w, r, http.StatusBadRequest, errors.New(fmt.Sprintf("failed to fetch video from url: %v", err)))
 				return
 			}
-			mimeType := ct
-			if !strings.HasPrefix(strings.ToLower(mimeType), "video/") {
-				mimeType = "video/mpeg"
-			}
-			imgDataURL := dataurl.New(data, mimeType)
-			parsed, err := dataurl.DecodeString(imgDataURL.String())
-			if err != nil {
-				s.Respond(w, r, http.StatusInternalServerError, errors.New("could not re-encode video to base64"))
-				return
-			}
-			filedata = parsed.Data
-
+			filedata = data
+			detectedMimeType = ct
 		} else {
 			s.Respond(w, r, http.StatusBadRequest, errors.New("data should start with \"data:mime/type;base64,\""))
 			return
+		}
+
+		// Determine MIME type: explicit field > data URL / HTTP header > fallback to video/mp4
+		videoMimeType := t.MimeType
+		if videoMimeType == "" {
+			videoMimeType = detectedMimeType
+		}
+		if videoMimeType == "" || !strings.HasPrefix(strings.ToLower(videoMimeType), "video/") {
+			videoMimeType = "video/mp4"
 		}
 
 		uploaded, err = clientManager.GetWhatsmeowClient(txtid).Upload(context.Background(), filedata, whatsmeow.MediaVideo)
@@ -1572,16 +1572,11 @@ func (s *server) SendVideo() http.HandlerFunc {
 		}
 
 		msg := &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
-			Caption:    proto.String(t.Caption),
-			URL:        proto.String(uploaded.URL),
-			DirectPath: proto.String(uploaded.DirectPath),
-			MediaKey:   uploaded.MediaKey,
-			Mimetype: proto.String(func() string {
-				if t.MimeType != "" {
-					return t.MimeType
-				}
-				return http.DetectContentType(filedata)
-			}()),
+			Caption:       proto.String(t.Caption),
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(videoMimeType),
 			FileEncSHA256: uploaded.FileEncSHA256,
 			FileSHA256:    uploaded.FileSHA256,
 			FileLength:    proto.Uint64(uint64(len(filedata))),
@@ -5557,13 +5552,13 @@ func (s *server) ConfigureS3() http.HandlerFunc {
 		}
 
 		// Validate media_delivery
-		if t.MediaDelivery != "" && t.MediaDelivery != "base64" && t.MediaDelivery != "s3" && t.MediaDelivery != "both" {
-			s.Respond(w, r, http.StatusBadRequest, errors.New("media_delivery must be 'base64', 's3', or 'both'"))
+		if t.MediaDelivery != "" && t.MediaDelivery != "base64" && t.MediaDelivery != "s3" && t.MediaDelivery != "both" && t.MediaDelivery != "local" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("media_delivery must be 'base64', 's3', 'both', or 'local'"))
 			return
 		}
 
 		if t.MediaDelivery == "" {
-			t.MediaDelivery = "base64"
+			t.MediaDelivery = "local"
 		}
 
 		// Update database
@@ -5798,7 +5793,7 @@ func (s *server) DeleteS3Config() http.HandlerFunc {
 				s3_secret_key = '',
 				s3_path_style = true,
 				s3_public_url = '',
-				media_delivery = 'base64',
+				media_delivery = 'local',
 				s3_retention_days = 30
 			WHERE id = $1`, txtid)
 
@@ -6965,5 +6960,34 @@ func (s *server) LabelMessage() http.HandlerFunc {
 		} else {
 			s.Respond(w, r, http.StatusOK, string(responseJson))
 		}
+	}
+}
+
+// ServeMedia serves media files from the local temp directory
+func (s *server) ServeMedia() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		userid := vars["userid"]
+		filename := vars["filename"]
+
+		// Validate against path traversal
+		if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+			http.Error(w, "Invalid filename", http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(userid, "..") || strings.Contains(userid, "/") || strings.Contains(userid, "\\") {
+			http.Error(w, "Invalid userid", http.StatusBadRequest)
+			return
+		}
+
+		filePath := filepath.Join("/tmp", userid, filename)
+
+		// Verify the file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+
+		http.ServeFile(w, r, filePath)
 	}
 }

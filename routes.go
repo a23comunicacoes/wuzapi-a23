@@ -166,5 +166,7 @@ func (s *server) routes() {
 
 	s.router.Handle("/newsletter/list", c.Then(s.ListNewsletter())).Methods("GET")
 
+	s.router.Handle("/media/{userid}/{filename}", s.ServeMedia()).Methods("GET")
+
 	s.router.PathPrefix("/").Handler(http.FileServer(http.Dir(exPath + "/static/")))
 }

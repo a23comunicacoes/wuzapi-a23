@@ -87,6 +87,42 @@ paths:
                 required:
                   - status
                   - timestamp
+  /media/{userid}/{filename}:
+    get:
+      tags:
+        - System
+      summary: Serve local media file
+      description: |
+        Serves media files stored locally when `media_delivery` is set to `local`.
+        The webhook payload will include a `mediaURL` field pointing to this endpoint.
+        No authentication is required so webhook receivers can fetch the file directly.
+      parameters:
+        - name: userid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "User directory identifier (e.g. user_1)"
+          example: "user_1"
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Media filename (message ID + extension)"
+          example: "3EB0A1B2C3D4E5F6.jpg"
+      responses:
+        200:
+          description: Media file content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        400:
+          description: Invalid filename or userid
+        404:
+          description: File not found
   /admin/users:
     get:
       tags:
@@ -3121,7 +3157,7 @@ definitions:
       media_delivery:
         type: string
         description: Media delivery method
-        enum: ["base64", "s3", "both"]
+        enum: ["base64", "s3", "both", "local"]
         example: "both"
       retention_days:
         type: integer

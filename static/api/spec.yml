@@ -94,8 +94,8 @@ paths:
       summary: Serve local media file
       description: |
         Serves media files stored locally when `media_delivery` is set to `local`.
-        The webhook payload will include a `mediaURL` field pointing to this endpoint.
-        No authentication is required so webhook receivers can fetch the file directly.
+        The webhook payload includes a `mediaURL` with the authentication token already appended.
+        Requires the user's API token as a query parameter.
       parameters:
         - name: userid
           in: path
@@ -111,6 +111,12 @@ paths:
             type: string
           description: "Media filename (message ID + extension)"
           example: "3EB0A1B2C3D4E5F6.jpg"
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "User API token for authentication"
       responses:
         200:
           description: Media file content
@@ -121,6 +127,8 @@ paths:
                 format: binary
         400:
           description: Invalid filename or userid
+        401:
+          description: Missing or invalid token
         404:
           description: File not found
   /admin/users:

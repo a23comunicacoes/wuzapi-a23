@@ -442,7 +442,13 @@ func (s *server) startClient(userID string, textjid string, token string, subscr
 	if *waDebug == "DEBUG" {
 		httpClient.SetDebug(true)
 	}
-	httpClient.SetTimeout(150 * time.Second)
+	webhookTimeout := 30 * time.Second
+	if t := os.Getenv("WEBHOOK_TIMEOUT"); t != "" {
+		if parsed, err := strconv.Atoi(t); err == nil && parsed > 0 {
+			webhookTimeout = time.Duration(parsed) * time.Second
+		}
+	}
+	httpClient.SetTimeout(webhookTimeout)
 	httpClient.SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
 	httpClient.OnError(func(req *resty.Request, err error) {
 		if v, ok := err.(*resty.ResponseError); ok {
@@ -869,7 +875,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			img := evt.Message.GetImageMessage()
 			if img != nil {
 				// Create a temporary directory in /tmp
-				tmpDirectory := filepath.Join("/tmp", "user_"+txtid)
+				tmpDirectory := filepath.Join(mycli.s.exPath, "media", "user_"+txtid)
 				errDir := os.MkdirAll(tmpDirectory, 0751)
 				if errDir != nil {
 					log.Error().Err(errDir).Msg("Could not create temporary directory")
@@ -942,7 +948,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					if baseURL == "" {
 						baseURL = "http://" + *address + ":" + *port
 					}
-					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath) + "?token=" + url.QueryEscape(mycli.token)
 					postmap["mimeType"] = img.GetMimetype()
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
@@ -965,7 +971,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			audio := evt.Message.GetAudioMessage()
 			if audio != nil {
 				// Create a temporary directory in /tmp
-				tmpDirectory := filepath.Join("/tmp", "user_"+txtid)
+				tmpDirectory := filepath.Join(mycli.s.exPath, "media", "user_"+txtid)
 				errDir := os.MkdirAll(tmpDirectory, 0751)
 				if errDir != nil {
 					log.Error().Err(errDir).Msg("Could not create temporary directory")
@@ -1044,7 +1050,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					if baseURL == "" {
 						baseURL = "http://" + *address + ":" + *port
 					}
-					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath) + "?token=" + url.QueryEscape(mycli.token)
 					postmap["mimeType"] = audio.GetMimetype()
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
@@ -1067,7 +1073,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			document := evt.Message.GetDocumentMessage()
 			if document != nil {
 				// Create a temporary directory in /tmp
-				tmpDirectory := filepath.Join("/tmp", "user_"+txtid)
+				tmpDirectory := filepath.Join(mycli.s.exPath, "media", "user_"+txtid)
 				errDir := os.MkdirAll(tmpDirectory, 0751)
 				if errDir != nil {
 					log.Error().Err(errDir).Msg("Could not create temporary directory")
@@ -1151,7 +1157,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					if baseURL == "" {
 						baseURL = "http://" + *address + ":" + *port
 					}
-					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath) + "?token=" + url.QueryEscape(mycli.token)
 					postmap["mimeType"] = document.GetMimetype()
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
@@ -1174,7 +1180,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			video := evt.Message.GetVideoMessage()
 			if video != nil {
 				// Create a temporary directory in /tmp
-				tmpDirectory := filepath.Join("/tmp", "user_"+txtid)
+				tmpDirectory := filepath.Join(mycli.s.exPath, "media", "user_"+txtid)
 				errDir := os.MkdirAll(tmpDirectory, 0751)
 				if errDir != nil {
 					log.Error().Err(errDir).Msg("Could not create temporary directory")
@@ -1247,7 +1253,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					if baseURL == "" {
 						baseURL = "http://" + *address + ":" + *port
 					}
-					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath) + "?token=" + url.QueryEscape(mycli.token)
 					postmap["mimeType"] = video.GetMimetype()
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}
@@ -1268,7 +1274,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 
 			sticker := evt.Message.GetStickerMessage()
 			if sticker != nil {
-				tmpDirectory := filepath.Join("/tmp", "user_"+txtid)
+				tmpDirectory := filepath.Join(mycli.s.exPath, "media", "user_"+txtid)
 				errDir := os.MkdirAll(tmpDirectory, 0751)
 				if errDir != nil {
 					log.Error().Err(errDir).Msg("Could not create temporary directory")
@@ -1338,7 +1344,7 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 					if baseURL == "" {
 						baseURL = "http://" + *address + ":" + *port
 					}
-					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath)
+					postmap["mediaURL"] = baseURL + "/media/user_" + txtid + "/" + filepath.Base(tmpPath) + "?token=" + url.QueryEscape(mycli.token)
 					postmap["mimeType"] = sticker.GetMimetype()
 					postmap["fileName"] = filepath.Base(tmpPath)
 				}

@@ -5415,6 +5415,20 @@ func (s *server) Respond(w http.ResponseWriter, r *http.Request, status int, dat
 	}
 }
 
+// RespondData writes a success JSON response with the given data, avoiding double marshal
+func (s *server) RespondData(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	envelope := map[string]interface{}{
+		"code":    status,
+		"success": true,
+		"data":    data,
+	}
+	if err := json.NewEncoder(w).Encode(envelope); err != nil {
+		panic("respond: " + err.Error())
+	}
+}
+
 // Validate message fields
 func validateMessageFields(phone string, stanzaid *string, participant *string) (types.JID, error) {
 
@@ -7223,4 +7237,433 @@ func (s *server) publishSentMessageEvent(token, userID, txtid string, recipient 
 
 	// Publish directly to RabbitMQ (bypassing subscription check for sent messages)
 	go sendToGlobalRabbit(jsonData, token, userID)
+}
+
+// ListChats returns a list of chats from message_history for the authenticated user
+func (s *server) ListChats() http.HandlerFunc {
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		limit := 100
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+				limit = parsed
+			}
+		}
+
+		var query string
+		if s.db.DriverName() == "postgres" {
+			query = `
+				SELECT chat_jid, MAX(timestamp) as last_message_time, COUNT(*) as message_count
+				FROM message_history
+				WHERE user_id = $1
+				GROUP BY chat_jid
+				ORDER BY last_message_time DESC
+				LIMIT $2`
+		} else {
+			query = `
+				SELECT chat_jid, MAX(timestamp) as last_message_time, COUNT(*) as message_count
+				FROM message_history
+				WHERE user_id = ?
+				GROUP BY chat_jid
+				ORDER BY last_message_time DESC
+				LIMIT ?`
+		}
+
+		type ChatEntry struct {
+			ChatJID         string `json:"chat_jid" db:"chat_jid"`
+			LastMessageTime string `json:"last_message_time" db:"last_message_time"`
+			MessageCount    int    `json:"message_count" db:"message_count"`
+			Name            string `json:"name,omitempty"`
+		}
+
+		var chats []ChatEntry
+		err := s.db.Select(&chats, query, txtid, limit)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, fmt.Errorf("failed to get chats: %w", err))
+			return
+		}
+
+		// Enrich with contact names
+		contacts, cerr := client.Store.Contacts.GetAllContacts(context.Background())
+		if cerr == nil {
+			for i, chat := range chats {
+				jid, perr := types.ParseJID(chat.ChatJID)
+				if perr == nil {
+					if contact, ok := contacts[jid]; ok {
+						if contact.FullName != "" {
+							chats[i].Name = contact.FullName
+						} else if contact.PushName != "" {
+							chats[i].Name = contact.PushName
+						} else if contact.BusinessName != "" {
+							chats[i].Name = contact.BusinessName
+						}
+					}
+				}
+			}
+		}
+
+		// Format timestamps to RFC3339
+		timeFormats := []string{
+			time.RFC3339Nano,
+			"2006-01-02 15:04:05.999999999 -0700 MST",
+			"2006-01-02 15:04:05-07:00",
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05Z",
+		}
+		for i, chat := range chats {
+			parsed := false
+			for _, layout := range timeFormats {
+				if t, err := time.Parse(layout, chat.LastMessageTime); err == nil {
+					chats[i].LastMessageTime = t.Format(time.RFC3339)
+					parsed = true
+					break
+				}
+			}
+			if !parsed {
+				// Strip Go monotonic clock suffix if present
+				if idx := strings.Index(chat.LastMessageTime, " m="); idx != -1 {
+					chats[i].LastMessageTime = chat.LastMessageTime[:idx]
+				}
+			}
+		}
+
+		s.RespondData(w, r, http.StatusOK, chats)
+	}
+}
+
+// MarkUnread marks a chat as unread
+func (s *server) MarkUnread() http.HandlerFunc {
+
+	type requestMarkUnreadStruct struct {
+		Jid string `json:"jid"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestMarkUnreadStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildMarkChatAsRead(chatJID, false, time.Time{}, nil))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to mark chat as unread: %s", err)))
+			return
+		}
+
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
+			"message": "Chat marked as unread",
+		})
+	}
+}
+
+// PinChat pins or unpins a chat
+func (s *server) PinChat() http.HandlerFunc {
+
+	type requestPinStruct struct {
+		Jid string `json:"jid"`
+		Pin bool   `json:"pin"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestPinStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildPin(chatJID, t.Pin))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to pin chat: %s", err)))
+			return
+		}
+
+		statusText := "Chat pinned"
+		if !t.Pin {
+			statusText = "Chat unpinned"
+		}
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
+			"message": statusText,
+		})
+	}
+}
+
+// LabelEdit creates, updates, or deletes a label
+func (s *server) LabelEdit() http.HandlerFunc {
+
+	type requestLabelEditStruct struct {
+		LabelID    string `json:"label_id"`
+		LabelName  string `json:"label_name"`
+		LabelColor int32  `json:"label_color"`
+		Deleted    bool   `json:"deleted"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestLabelEditStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.LabelID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing label_id in Payload"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildLabelEdit(t.LabelID, t.LabelName, t.LabelColor, t.Deleted))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to edit label: %s", err)))
+			return
+		}
+
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
+			"message": "Label updated",
+		})
+	}
+}
+
+// LabelChat assigns or removes a label from a chat
+func (s *server) LabelChat() http.HandlerFunc {
+
+	type requestLabelChatStruct struct {
+		Jid     string `json:"jid"`
+		LabelID string `json:"label_id"`
+		Labeled bool   `json:"labeled"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestLabelChatStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+		if t.LabelID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing label_id in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildLabelChat(chatJID, t.LabelID, t.Labeled))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to label chat: %s", err)))
+			return
+		}
+
+		statusText := "Label assigned to chat"
+		if !t.Labeled {
+			statusText = "Label removed from chat"
+		}
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
+			"message": statusText,
+		})
+	}
+}
+
+// LabelMessage assigns or removes a label from a specific message
+func (s *server) LabelMessage() http.HandlerFunc {
+
+	type requestLabelMessageStruct struct {
+		Jid       string `json:"jid"`
+		LabelID   string `json:"label_id"`
+		MessageID string `json:"message_id"`
+		Labeled   bool   `json:"labeled"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		if client == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		decoder := json.NewDecoder(r.Body)
+		var t requestLabelMessageStruct
+		err := decoder.Decode(&t)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if t.Jid == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing jid in Payload"))
+			return
+		}
+		if t.LabelID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing label_id in Payload"))
+			return
+		}
+		if t.MessageID == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing message_id in Payload"))
+			return
+		}
+
+		chatJID, err := types.ParseJID(t.Jid)
+		if err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid Chat JID format"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err = client.SendAppState(ctx, appstate.BuildLabelMessage(chatJID, t.LabelID, t.MessageID, t.Labeled))
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("failed to label message: %s", err)))
+			return
+		}
+
+		statusText := "Label assigned to message"
+		if !t.Labeled {
+			statusText = "Label removed from message"
+		}
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
+			"message": statusText,
+		})
+	}
+}
+
+// ServeMedia serves media files from the dedicated media directory
+func (s *server) ServeMedia() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		userid := vars["userid"]
+		filename := vars["filename"]
+
+		// Validate against path traversal
+		if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+			http.Error(w, "Invalid filename", http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(userid, "..") || strings.Contains(userid, "/") || strings.Contains(userid, "\\") {
+			http.Error(w, "Invalid userid", http.StatusBadRequest)
+			return
+		}
+
+		// Validate token from query parameter
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Verify that the token matches the user
+		var count int
+		userIDStr := strings.TrimPrefix(userid, "user_")
+		err := s.db.Get(&count, "SELECT COUNT(*) FROM users WHERE id=$1 AND token=$2", userIDStr, token)
+		if err != nil || count == 0 {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		mediaRoot := filepath.Join(s.exPath, "media")
+		filePath := filepath.Join(mediaRoot, userid, filename)
+
+		// Verify the file exists
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+
+		http.ServeFile(w, r, filePath)
+	}
 }

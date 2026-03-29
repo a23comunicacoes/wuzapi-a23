@@ -29,6 +29,8 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 
+	waBinary "go.mau.fi/whatsmeow/binary"
+
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -1917,7 +1919,7 @@ func (s *server) SendLocation() http.HandlerFunc {
 	}
 }
 
-// Sends Buttons (not implemented, does not work)
+// Sends Buttons
 func (s *server) SendButtons() http.HandlerFunc {
 
 	type buttonStruct struct {
@@ -1926,7 +1928,9 @@ func (s *server) SendButtons() http.HandlerFunc {
 	}
 	type textStruct struct {
 		Phone   string
+		Text    string
 		Title   string
+		Footer  string
 		Buttons []buttonStruct
 		Id      string
 	}
@@ -1956,8 +1960,13 @@ func (s *server) SendButtons() http.HandlerFunc {
 			return
 		}
 
-		if t.Title == "" {
-			s.Respond(w, r, http.StatusBadRequest, errors.New("missing Title in Payload"))
+		// Support both Text (new) and Title (legacy) as body text
+		bodyText := t.Text
+		if bodyText == "" {
+			bodyText = t.Title
+		}
+		if bodyText == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing Text in Payload"))
 			return
 		}
 
@@ -1985,26 +1994,67 @@ func (s *server) SendButtons() http.HandlerFunc {
 		var buttons []*waE2E.ButtonsMessage_Button
 
 		for _, item := range t.Buttons {
+			buttonID := strings.TrimSpace(item.ButtonId)
+			if buttonID == "" {
+				buttonID = item.ButtonText
+			}
 			buttons = append(buttons, &waE2E.ButtonsMessage_Button{
-				ButtonID:       proto.String(item.ButtonId),
+				ButtonID:       proto.String(buttonID),
 				ButtonText:     &waE2E.ButtonsMessage_Button_ButtonText{DisplayText: proto.String(item.ButtonText)},
 				Type:           waE2E.ButtonsMessage_Button_RESPONSE.Enum(),
 				NativeFlowInfo: &waE2E.ButtonsMessage_Button_NativeFlowInfo{},
 			})
 		}
 
-		msg2 := &waE2E.ButtonsMessage{
-			ContentText: proto.String(t.Title),
+		buttonsMsg := &waE2E.ButtonsMessage{
+			ContentText: proto.String(bodyText),
 			HeaderType:  waE2E.ButtonsMessage_EMPTY.Enum(),
 			Buttons:     buttons,
 		}
 
-		msg := &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{
-			Message: &waE2E.Message{
-				ButtonsMessage: msg2,
+		// Optional: header text (when both Text and Title are provided, Title becomes the header)
+		if t.Text != "" && t.Title != "" {
+			buttonsMsg.HeaderType = waE2E.ButtonsMessage_TEXT.Enum()
+			buttonsMsg.Header = &waE2E.ButtonsMessage_Text{Text: t.Title}
+		}
+
+		// Optional: footer text
+		if t.Footer != "" {
+			buttonsMsg.FooterText = proto.String(t.Footer)
+		}
+
+		// Wrap in DocumentWithCaptionMessage > FutureProofMessage (required for rendering)
+		msg := &waE2E.Message{
+			DocumentWithCaptionMessage: &waE2E.FutureProofMessage{
+				Message: &waE2E.Message{
+					ButtonsMessage: buttonsMsg,
+				},
 			},
+		}
+
+		// Extra binary nodes required for interactive buttons
+		extraNodes := []waBinary.Node{{
+			Tag: "biz",
+			Content: []waBinary.Node{{
+				Tag: "interactive",
+				Attrs: waBinary.Attrs{
+					"type": "native_flow",
+					"v":    "1",
+				},
+				Content: []waBinary.Node{{
+					Tag: "native_flow",
+					Attrs: waBinary.Attrs{
+						"v":    "9",
+						"name": "mixed",
+					},
+				}},
+			}},
 		}}
-		resp, err = clientManager.GetWhatsmeowClient(txtid).SendMessage(context.Background(), recipient, msg, whatsmeow.SendRequestExtra{ID: msgid})
+
+		resp, err = clientManager.GetWhatsmeowClient(txtid).SendMessage(context.Background(), recipient, msg, whatsmeow.SendRequestExtra{
+			ID:              msgid,
+			AdditionalNodes: &extraNodes,
+		})
 		if err != nil {
 			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("error sending message: %v", err)))
 			return
@@ -2143,20 +2193,35 @@ func (s *server) SendList() http.HandlerFunc {
 			listMsg.FooterText = proto.String(req.FooterText)
 		}
 
-		// Try with ViewOnceMessage wrapper as some users report this helps with error 405
+		// Wrap in DocumentWithCaptionMessage > FutureProofMessage (required for rendering)
 		msg := &waE2E.Message{
-			ViewOnceMessage: &waE2E.FutureProofMessage{
+			DocumentWithCaptionMessage: &waE2E.FutureProofMessage{
 				Message: &waE2E.Message{
 					ListMessage: listMsg,
 				},
 			},
 		}
 
+		// Extra binary nodes required for list messages
+		extraNodes := []waBinary.Node{{
+			Tag: "biz",
+			Content: []waBinary.Node{{
+				Tag: "list",
+				Attrs: waBinary.Attrs{
+					"type": "product_list",
+					"v":    "2",
+				},
+			}},
+		}}
+
 		resp, err := clientManager.GetWhatsmeowClient(txtid).SendMessage(
 			context.Background(),
 			recipient,
 			msg,
-			whatsmeow.SendRequestExtra{ID: msgid},
+			whatsmeow.SendRequestExtra{
+				ID:              msgid,
+				AdditionalNodes: &extraNodes,
+			},
 		)
 		if err != nil {
 			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("error sending message: %v", err)))

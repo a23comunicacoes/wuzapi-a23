@@ -700,6 +700,65 @@ curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"
 
 ---
 
+## Send Buttons Message
+
+Sends an interactive buttons message. Up to 3 buttons. Requires `Phone`, `Text` (body text) and `Buttons` array. Optionally supports `Title` (header text) and `Footer`.
+
+If only `Title` is provided (without `Text`), it is used as the body text for backwards compatibility.
+
+Endpoint: _/chat/send/buttons_
+
+Method: **POST**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| Phone | string | Yes | Recipient phone number or JID |
+| Text | string | Yes* | Message body text |
+| Title | string | No | Header text (displayed above body). If `Text` is empty, `Title` is used as body |
+| Footer | string | No | Footer text displayed below buttons |
+| Buttons | array | Yes | Array of button objects (max 3) |
+| Buttons[].ButtonId | string | No | Unique button ID (defaults to ButtonText if empty) |
+| Buttons[].ButtonText | string | Yes | Display text on the button |
+| Id | string | No | Custom message ID |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"Phone":"5491155554444","Text":"Choose an option","Title":"Quick Actions","Footer":"Tap a button","Buttons":[{"ButtonId":"help","ButtonText":"Help"},{"ButtonId":"pricing","ButtonText":"Pricing"},{"ButtonId":"contact","ButtonText":"Contact Us"}]}' http://localhost:8080/chat/send/buttons
+```
+
+---
+
+## Send List Message
+
+Sends an interactive list message. Requires `Phone`, `Desc` (body text), `ButtonText` (label on the open-list button), and either `Sections` or `List` (legacy).
+
+Endpoint: _/chat/send/list_
+
+Method: **POST**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| Phone | string | Yes | Recipient phone number or JID |
+| Desc | string | Yes | Message body/description text |
+| ButtonText | string | Yes | Text on the "open list" button |
+| TopText | string | Yes | Header/title text |
+| Sections | array | No* | Array of section objects (preferred) |
+| Sections[].title | string | No | Section header |
+| Sections[].rows | array | Yes | Array of row objects |
+| Sections[].rows[].title | string | Yes | Row display text |
+| Sections[].rows[].desc | string | No | Row description |
+| Sections[].rows[].RowId | string | No | Unique row ID (defaults to title) |
+| List | array | No* | Flat array of items (legacy, creates single section) |
+| FooterText | string | No | Footer text |
+| Id | string | No | Custom message ID |
+
+\* Either `Sections` or `List` must be provided.
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"Phone":"5491155554444","ButtonText":"View Options","Desc":"Browse our catalog","TopText":"Product Catalog","FooterText":"Tap to see options","Sections":[{"title":"Electronics","rows":[{"title":"Smartphones","desc":"Latest models","RowId":"phone"},{"title":"Laptops","desc":"Work and gaming","RowId":"laptop"}]},{"title":"Accessories","rows":[{"title":"Phone Cases","RowId":"case"},{"title":"Chargers","desc":"Fast charging","RowId":"charger"}]}]}' http://localhost:8080/chat/send/list
+```
+
+---
+
 ## Send Audio Message
 
 Sends an Audio message. Audio must be in Opus format and base64 encoded in embedded format.

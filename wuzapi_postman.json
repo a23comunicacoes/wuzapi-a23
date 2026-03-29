@@ -991,14 +991,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"Phone\": \"5511999999999\",\n  \"Title\": \"Pagamento\",\n  \"Body\": \"Escolha uma opcao\",\n  \"Footer\": \"Obrigado\",\n  \"Buttons\": [\n    {\n      \"ButtonId\": \"pix-1\",\n      \"ButtonText\": \"Pagar com PIX\",\n      \"PixPayment\": {\n        \"MerchantName\": \"Minha Loja\",\n        \"Key\": \"minha-chave-pix\",\n        \"KeyType\": \"EMAIL\"\n      }\n    },\n    {\n      \"ButtonId\": \"copy-1\",\n      \"ButtonText\": \"Copiar cupom\",\n      \"ButtonCopy\": \"CUPOM10\"\n    },\n    {\n      \"ButtonId\": \"call-1\",\n      \"ButtonText\": \"Ligar\",\n      \"ButtonUrl\": \"tel:+5511999999999\"\n    },\n    {\n      \"ButtonId\": \"site-1\",\n      \"ButtonText\": \"Abrir site\",\n      \"ButtonUrl\": \"https://example.com\"\n    }\n  ]\n}"
+              "raw": "{\n  \"Phone\": \"5511999999999\",\n  \"Text\": \"Escolha uma opcao\",\n  \"Title\": \"Pagamento\",\n  \"Footer\": \"Obrigado\",\n  \"Buttons\": [\n    {\n      \"ButtonId\": \"opt-1\",\n      \"ButtonText\": \"Opcao 1\"\n    },\n    {\n      \"ButtonId\": \"opt-2\",\n      \"ButtonText\": \"Opcao 2\"\n    },\n    {\n      \"ButtonId\": \"opt-3\",\n      \"ButtonText\": \"Opcao 3\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/chat/send/buttons",
               "host": ["{{baseUrl}}"],
               "path": ["chat", "send", "buttons"]
             },
-            "description": "Send interactive buttons (PIX/Copy/Call/URL)"
+            "description": "Send interactive buttons message (max 3 buttons). Text=body, Title=header (optional), Footer (optional)."
           },
           "response": []
         },

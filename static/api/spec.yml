@@ -1335,8 +1335,8 @@ paths:
     post:
       tags:
         - Chat
-      summary: Sends a Buttons message
-      description: Sends a Buttons message
+      summary: Sends an interactive Buttons message
+      description: Sends an interactive buttons message with up to 3 buttons. Supports optional header (Title) and footer.
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -1356,8 +1356,8 @@ paths:
     post:
       tags:
         - Chat
-      summary: Sends a List message
-      description: Sends a List message
+      summary: Sends an interactive List message
+      description: Sends an interactive list message with sections and rows. Supports Sections array or legacy flat List array.
       security:
         - ApiKeyAuth: []
       requestBody:
@@ -2386,25 +2386,53 @@ definitions:
       - ButtonText
       - Desc
       - TopText
-      - List
     properties:
       Phone:
         type: string
         example: "5521971532700"
+        description: Recipient phone number or JID
       ButtonText:
         type: string
-        example: Click Here
+        example: View Options
+        description: Text on the open-list button
       Desc:
         type: string
-        example: This is a list
+        example: Browse our catalog
+        description: Message body/description text
       TopText:
         type: string
-        example: This is a list
+        example: Product Catalog
+        description: Header/title text
       FooterText:
         type: string
-        example: This is a footer text
+        example: Tap to see options
+        description: Optional footer text
+      Sections:
+        type: array
+        description: Array of section objects (preferred over List)
+        items:
+          type: object
+          properties:
+            title:
+              type: string
+              example: Electronics
+            rows:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    example: Smartphones
+                  desc:
+                    type: string
+                    example: Latest models
+                  RowId:
+                    type: string
+                    example: phone
       List:
         type: array
+        description: Flat array of items (legacy, creates single section). Use Sections instead.
         items:
           type: object
           properties:
@@ -2416,35 +2444,54 @@ definitions:
               example: long description
             RowId:
               type: string
-              example: 1
+              example: "1"
+      Id:
+        type: string
+        example: "ABCDABCD1234"
+        description: Optional custom message ID
 
   MessageButtons:
     type: object
     required:
       - Phone
-      - Body
+      - Buttons
     properties:
       Phone:
         type: string
         example: "5521971532700"
-      Body:
+        description: Recipient phone number or JID
+      Text:
         type: string
-        example: How you doin
+        example: Choose an option
+        description: Message body text. If empty, Title is used as body (legacy)
+      Title:
+        type: string
+        example: Quick Actions
+        description: Header text displayed above body. If Text is empty, used as body for backwards compatibility
+      Footer:
+        type: string
+        example: Tap a button to continue
+        description: Optional footer text
+      Buttons:
+        type: array
+        description: Array of button objects (max 3)
+        items:
+          type: object
+          required:
+            - ButtonText
+          properties:
+            ButtonId:
+              type: string
+              example: help
+              description: Unique button ID (defaults to ButtonText if empty)
+            ButtonText:
+              type: string
+              example: Help
+              description: Display text on the button
       Id:
         type: string
         example: "ABCDABCD1234"
-      ContextInfo:
-        type: object
-        required:
-          - StanzaId
-          - Participant
-        properties:
-          StanzaId: 
-            type: string
-            example: "3EB06F9067F80BAB89FF" 
-          Participant: 
-            type: string
-            example: "5491155553935@s.whatsapp.net"
+        description: Optional custom message ID
 
   MessageText:
     type: object

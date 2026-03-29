@@ -133,7 +133,7 @@ Response:
 
 ## Serve Local Media
 
-Serves media files stored locally when `media_delivery` is set to `local`. No authentication required — webhook receivers can fetch files directly using the `mediaURL` from the webhook payload.
+Serves media files stored locally when `media_delivery` is set to `local`. Requires the user's API token as a query parameter for authentication. The webhook payload includes a `mediaURL` with the token already appended.
 
 Endpoint: _/media/{userid}/{filename}_
 
@@ -143,11 +143,12 @@ Method: **GET**
 |-----------|--------|-----------------------------------------------|
 | userid    | string | User directory identifier (e.g. `user_1`)     |
 | filename  | string | Media filename (message ID + extension)       |
+| token     | string | User API token (query parameter, required)    |
 
 **curl example:**
 
 ```bash
-curl http://localhost:8080/media/user_1/3EB0A1B2C3D4E5F6.jpg --output image.jpg
+curl "http://localhost:8080/media/user_1/3EB0A1B2C3D4E5F6.jpg?token=1234ABCD" --output image.jpg
 ```
 
 **Responses:**
@@ -156,11 +157,13 @@ curl http://localhost:8080/media/user_1/3EB0A1B2C3D4E5F6.jpg --output image.jpg
 |------|------------------------|
 | 200  | Media file content     |
 | 400  | Invalid filename/userid|
+| 401  | Missing or invalid token|
 | 404  | File not found         |
 
-**Environment variable:**
+**Environment variables:**
 
-Set `WUZAPI_BASE_URL` to override the base URL used in webhook `mediaURL` fields (useful behind proxy/ngrok). Default: `http://{address}:{port}`.
+- `WUZAPI_BASE_URL`: Override the base URL used in webhook `mediaURL` fields (useful behind proxy/ngrok). Default: `http://{address}:{port}`.
+- `WEBHOOK_TIMEOUT`: Webhook HTTP client timeout in seconds. Default: `30`.
 
 ---
 

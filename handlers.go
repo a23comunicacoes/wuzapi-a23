@@ -5415,6 +5415,20 @@ func (s *server) Respond(w http.ResponseWriter, r *http.Request, status int, dat
 	}
 }
 
+// RespondData writes a success JSON response with the given data, avoiding double marshal
+func (s *server) RespondData(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	envelope := map[string]interface{}{
+		"code":    status,
+		"success": true,
+		"data":    data,
+	}
+	if err := json.NewEncoder(w).Encode(envelope); err != nil {
+		panic("respond: " + err.Error())
+	}
+}
+
 // Validate message fields
 func validateMessageFields(phone string, stanzaid *string, participant *string) (types.JID, error) {
 
@@ -6859,23 +6873,32 @@ func (s *server) ListChats() http.HandlerFunc {
 			}
 		}
 
-		// Format timestamps
+		// Format timestamps to RFC3339
+		timeFormats := []string{
+			time.RFC3339Nano,
+			"2006-01-02 15:04:05.999999999 -0700 MST",
+			"2006-01-02 15:04:05-07:00",
+			"2006-01-02 15:04:05",
+			"2006-01-02T15:04:05Z",
+		}
 		for i, chat := range chats {
-			if parsedTime, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", chat.LastMessageTime); err == nil {
-				chats[i].LastMessageTime = parsedTime.Format(time.RFC3339Nano)
-			} else if parsedTime, err := time.Parse(time.RFC3339Nano, chat.LastMessageTime); err == nil {
-				chats[i].LastMessageTime = parsedTime.Format(time.RFC3339Nano)
-			} else {
-				chats[i].LastMessageTime = strings.Split(chat.LastMessageTime, " m=")[0]
+			parsed := false
+			for _, layout := range timeFormats {
+				if t, err := time.Parse(layout, chat.LastMessageTime); err == nil {
+					chats[i].LastMessageTime = t.Format(time.RFC3339)
+					parsed = true
+					break
+				}
+			}
+			if !parsed {
+				// Strip Go monotonic clock suffix if present
+				if idx := strings.Index(chat.LastMessageTime, " m="); idx != -1 {
+					chats[i].LastMessageTime = chat.LastMessageTime[:idx]
+				}
 			}
 		}
 
-		responseJson, err := json.Marshal(chats)
-		if err != nil {
-			s.Respond(w, r, http.StatusInternalServerError, err)
-		} else {
-			s.Respond(w, r, http.StatusOK, string(responseJson))
-		}
+		s.RespondData(w, r, http.StatusOK, chats)
 	}
 }
 
@@ -6924,16 +6947,9 @@ func (s *server) MarkUnread() http.HandlerFunc {
 			return
 		}
 
-		response := map[string]interface{}{
-			"success": true,
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
 			"message": "Chat marked as unread",
-		}
-		responseJson, err := json.Marshal(response)
-		if err != nil {
-			s.Respond(w, r, http.StatusInternalServerError, err)
-		} else {
-			s.Respond(w, r, http.StatusOK, string(responseJson))
-		}
+		})
 	}
 }
 
@@ -6987,16 +7003,9 @@ func (s *server) PinChat() http.HandlerFunc {
 		if !t.Pin {
 			statusText = "Chat unpinned"
 		}
-		response := map[string]interface{}{
-			"success": true,
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
 			"message": statusText,
-		}
-		responseJson, err := json.Marshal(response)
-		if err != nil {
-			s.Respond(w, r, http.StatusInternalServerError, err)
-		} else {
-			s.Respond(w, r, http.StatusOK, string(responseJson))
-		}
+		})
 	}
 }
 
@@ -7042,16 +7051,9 @@ func (s *server) LabelEdit() http.HandlerFunc {
 			return
 		}
 
-		response := map[string]interface{}{
-			"success": true,
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
 			"message": "Label updated",
-		}
-		responseJson, err := json.Marshal(response)
-		if err != nil {
-			s.Respond(w, r, http.StatusInternalServerError, err)
-		} else {
-			s.Respond(w, r, http.StatusOK, string(responseJson))
-		}
+		})
 	}
 }
 
@@ -7110,16 +7112,9 @@ func (s *server) LabelChat() http.HandlerFunc {
 		if !t.Labeled {
 			statusText = "Label removed from chat"
 		}
-		response := map[string]interface{}{
-			"success": true,
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
 			"message": statusText,
-		}
-		responseJson, err := json.Marshal(response)
-		if err != nil {
-			s.Respond(w, r, http.StatusInternalServerError, err)
-		} else {
-			s.Respond(w, r, http.StatusOK, string(responseJson))
-		}
+		})
 	}
 }
 
@@ -7183,20 +7178,13 @@ func (s *server) LabelMessage() http.HandlerFunc {
 		if !t.Labeled {
 			statusText = "Label removed from message"
 		}
-		response := map[string]interface{}{
-			"success": true,
+		s.RespondData(w, r, http.StatusOK, map[string]interface{}{
 			"message": statusText,
-		}
-		responseJson, err := json.Marshal(response)
-		if err != nil {
-			s.Respond(w, r, http.StatusInternalServerError, err)
-		} else {
-			s.Respond(w, r, http.StatusOK, string(responseJson))
-		}
+		})
 	}
 }
 
-// ServeMedia serves media files from the local temp directory
+// ServeMedia serves media files from the dedicated media directory
 func (s *server) ServeMedia() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
@@ -7213,7 +7201,24 @@ func (s *server) ServeMedia() http.HandlerFunc {
 			return
 		}
 
-		filePath := filepath.Join("/tmp", userid, filename)
+		// Validate token from query parameter
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Verify that the token matches the user
+		var count int
+		userIDStr := strings.TrimPrefix(userid, "user_")
+		err := s.db.Get(&count, "SELECT COUNT(*) FROM users WHERE id=$1 AND token=$2", userIDStr, token)
+		if err != nil || count == 0 {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		mediaRoot := filepath.Join(s.exPath, "media")
+		filePath := filepath.Join(mediaRoot, userid, filename)
 
 		// Verify the file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {

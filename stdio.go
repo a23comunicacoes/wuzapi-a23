@@ -482,6 +482,18 @@ func (ss *stdioServer) routeRequest(req *jsonRpcRequest) {
 		httpMethod = "POST"
 		httpPath = "/label/message"
 
+	// Media
+	case "media.get":
+		httpMethod = "GET"
+		userid, _ := req.Params["userid"].(string)
+		filename, _ := req.Params["filename"].(string)
+		token, _ := req.Params["token"].(string)
+		if userid == "" || filename == "" || token == "" {
+			ss.sendError(req.ID, 400, "missing userid, filename, or token parameter")
+			return
+		}
+		httpPath = "/media/" + userid + "/" + filename + "?token=" + token
+
 	default:
 		ss.sendError(req.ID, 404, fmt.Sprintf("unknown method: %s", req.Method))
 		return

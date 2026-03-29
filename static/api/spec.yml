@@ -1373,6 +1373,48 @@ paths:
             application/json:
               schema:
                 example: {"code":200,"data":{"Details":"Sent","Id":"90B2F8B13FAC8A9CF6B06E99C7834DC5","Timestamp":"2022-04-20T12:49:08-03:00"},"success":true}
+  /chat/send/pix:
+    post:
+      tags:
+        - Chat
+      summary: Sends a PIX payment message
+      description: Sends an interactive PIX payment message with a native "Pay with PIX" button.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/MessagePix'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: {"code":200,"data":{"Details":"Sent","Id":"90B2F8B13FAC8A9CF6B06E99C7834DC5","Timestamp":"2022-04-20T12:49:08-03:00"},"success":true}
+  /chat/send/reviewandpay:
+    post:
+      tags:
+        - Chat
+      summary: Sends a Review and Pay order message
+      description: Sends an interactive order summary with line items, totals, discounts, and a native "Review and Pay" button.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/definitions/MessageReviewAndPay'
+      responses:
+        200:
+          description: Response
+          content:
+            application/json:
+              schema:
+                example: {"code":200,"data":{"Details":"Sent","Id":"90B2F8B13FAC8A9CF6B06E99C7834DC5","Timestamp":"2022-04-20T12:49:08-03:00"},"success":true}
   /chat/send/poll:
     post:
       tags:
@@ -2488,6 +2530,134 @@ definitions:
               type: string
               example: Help
               description: Display text on the button
+      Id:
+        type: string
+        example: "ABCDABCD1234"
+        description: Optional custom message ID
+
+  MessagePix:
+    type: object
+    required:
+      - Phone
+      - PixKey
+      - PixKeyType
+      - MerchantName
+    properties:
+      Phone:
+        type: string
+        example: "5521971532700"
+        description: Recipient phone number or JID
+      PixKey:
+        type: string
+        example: email@example.com
+        description: PIX key (email, phone, CPF, CNPJ, or EVP)
+      PixKeyType:
+        type: string
+        example: EMAIL
+        description: "Type of PIX key: EMAIL, PHONE, CPF, CNPJ, or EVP"
+      MerchantName:
+        type: string
+        example: My Store
+        description: Merchant/store display name
+      DisplayText:
+        type: string
+        example: Pagar com PIX
+        description: Button text (default "Pagar com PIX")
+      Currency:
+        type: string
+        example: BRL
+        description: Currency code (default "BRL")
+      Amount:
+        type: integer
+        example: 5999
+        description: Amount in cents (e.g. 5999 = R$59.99)
+      ItemName:
+        type: string
+        example: Product X
+        description: Product/item name
+      ReferenceId:
+        type: string
+        example: PIX123456
+        description: Order reference ID (auto-generated if empty)
+      Id:
+        type: string
+        example: "ABCDABCD1234"
+        description: Optional custom message ID
+
+  MessageReviewAndPay:
+    type: object
+    required:
+      - Phone
+      - Items
+    properties:
+      Phone:
+        type: string
+        example: "5521971532700"
+        description: Recipient phone number or JID
+      Items:
+        type: array
+        description: Array of order items
+        items:
+          type: object
+          required:
+            - Name
+            - Amount
+          properties:
+            Name:
+              type: string
+              example: Smartphone
+            Amount:
+              type: integer
+              example: 99900
+              description: Price in cents
+            Quantity:
+              type: integer
+              example: 1
+            ProductId:
+              type: string
+              example: "PROD001"
+            RetailerId:
+              type: string
+              example: "RET001"
+      PaymentType:
+        type: string
+        example: pix_static_code
+        description: "pix_static_code (default) or upi"
+      Currency:
+        type: string
+        example: BRL
+        description: Currency code (default "BRL")
+      TotalValue:
+        type: integer
+        example: 0
+        description: Total in cents (auto-calculated from items if 0)
+      Discount:
+        type: integer
+        example: 1000
+        description: Discount in cents
+      PixKey:
+        type: string
+        example: email@example.com
+        description: PIX key (required if PaymentType = pix_static_code)
+      PixKeyType:
+        type: string
+        example: EMAIL
+        description: "PIX key type: EMAIL, PHONE, CPF, CNPJ, EVP"
+      MerchantName:
+        type: string
+        example: My Store
+      AdditionalNote:
+        type: string
+        example: Thank you for your order
+        description: Note displayed to the buyer
+      PaymentInstruction:
+        type: string
+        example: Pay within 30 minutes
+        description: Payment instructions
+      ReferenceId:
+        type: string
+        example: RAP123456
+        description: Order reference ID (auto-generated if empty)
       Id:
         type: string
         example: "ABCDABCD1234"

@@ -1024,6 +1024,48 @@
           "response": []
         },
         {
+          "name": "Send PIX Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Phone\": \"5511999999999\",\n  \"PixKey\": \"email@example.com\",\n  \"PixKeyType\": \"EMAIL\",\n  \"MerchantName\": \"Minha Loja\",\n  \"Amount\": 5999,\n  \"ItemName\": \"Produto X\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chat/send/pix",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat", "send", "pix"]
+            },
+            "description": "Send a PIX payment interactive message with native Pay with PIX button."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Review and Pay",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "token", "value": "{{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Phone\": \"5511999999999\",\n  \"Items\": [\n    { \"Name\": \"Smartphone\", \"Amount\": 99900, \"Quantity\": 1 },\n    { \"Name\": \"Capinha\", \"Amount\": 2900, \"Quantity\": 2 }\n  ],\n  \"Discount\": 1000,\n  \"PixKey\": \"email@example.com\",\n  \"PixKeyType\": \"EMAIL\",\n  \"MerchantName\": \"Minha Loja\",\n  \"AdditionalNote\": \"Obrigado pela compra\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chat/send/reviewandpay",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat", "send", "reviewandpay"]
+            },
+            "description": "Send an interactive order summary with Review and Pay button."
+          },
+          "response": []
+        },
+        {
           "name": "Send Poll",
           "request": {
             "method": "POST",

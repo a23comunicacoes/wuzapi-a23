@@ -2248,6 +2248,408 @@ func (s *server) SendList() http.HandlerFunc {
 	}
 }
 
+// SendPixPayment sends a PIX payment interactive message
+func (s *server) SendPixPayment() http.HandlerFunc {
+
+	type pixRequest struct {
+		Phone        string `json:"Phone"`
+		PixKey       string `json:"PixKey"`
+		PixKeyType   string `json:"PixKeyType"`
+		MerchantName string `json:"MerchantName"`
+		DisplayText  string `json:"DisplayText"`
+		Currency     string `json:"Currency"`
+		Amount       int    `json:"Amount"`
+		ItemName     string `json:"ItemName"`
+		ReferenceId  string `json:"ReferenceId"`
+		Id           string `json:"Id,omitempty"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+		if clientManager.GetWhatsmeowClient(txtid) == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		var req pixRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if req.Phone == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing Phone in Payload"))
+			return
+		}
+		if req.PixKey == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing PixKey in Payload"))
+			return
+		}
+		if req.PixKeyType == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing PixKeyType in Payload"))
+			return
+		}
+		if req.MerchantName == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing MerchantName in Payload"))
+			return
+		}
+
+		recipient, ok := parseJID(req.Phone)
+		if !ok {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not parse Phone"))
+			return
+		}
+
+		msgid := req.Id
+		if msgid == "" {
+			msgid = clientManager.GetWhatsmeowClient(txtid).GenerateMessageID()
+		}
+
+		// Defaults
+		currency := req.Currency
+		if currency == "" {
+			currency = "BRL"
+		}
+		displayText := req.DisplayText
+		if displayText == "" {
+			displayText = "Pagar com PIX"
+		}
+		referenceID := req.ReferenceId
+		if referenceID == "" {
+			referenceID = fmt.Sprintf("PIX%d", time.Now().UnixMilli())
+		}
+		itemName := req.ItemName
+		if itemName == "" {
+			itemName = "Pagamento"
+		}
+
+		// Build JSON payload for the button
+		buttonParams := map[string]interface{}{
+			"display_text": displayText,
+			"currency":     currency,
+			"total_amount": map[string]interface{}{
+				"value":  req.Amount,
+				"offset": 100,
+			},
+			"reference_id": referenceID,
+			"type":         "physical-goods",
+			"order": map[string]interface{}{
+				"status": "pending",
+				"subtotal": map[string]interface{}{
+					"value":  req.Amount,
+					"offset": 100,
+				},
+				"order_type": "ORDER",
+				"items": []map[string]interface{}{
+					{
+						"retailer_id": "0",
+						"product_id":  "0",
+						"name":        itemName,
+						"amount": map[string]interface{}{
+							"value":  req.Amount,
+							"offset": 100,
+						},
+						"quantity": 1,
+					},
+				},
+			},
+			"payment_settings": []map[string]interface{}{
+				{
+					"type": "pix_static_code",
+					"pix_static_code": map[string]interface{}{
+						"merchant_name": req.MerchantName,
+						"key":           req.PixKey,
+						"key_type":      strings.ToUpper(req.PixKeyType),
+					},
+				},
+			},
+		}
+		buttonParamsJSON, err := json.Marshal(buttonParams)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("error building payload: %v", err)))
+			return
+		}
+
+		// Build InteractiveMessage protobuf
+		interactiveMsg := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					MessageVersion: proto.Int32(1),
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("payment_info"),
+							ButtonParamsJSON: proto.String(string(buttonParamsJSON)),
+						},
+					},
+				},
+			},
+		}
+
+		// PIX: InteractiveMessage directly (NO FutureProofMessage wrapper)
+		msg := &waE2E.Message{InteractiveMessage: interactiveMsg}
+
+		// Biz node with native_flow_name attribute
+		extraNodes := []waBinary.Node{{
+			Tag: "biz",
+			Attrs: waBinary.Attrs{
+				"native_flow_name": "payment_info",
+			},
+		}}
+
+		resp, err := clientManager.GetWhatsmeowClient(txtid).SendMessage(
+			context.Background(),
+			recipient,
+			msg,
+			whatsmeow.SendRequestExtra{
+				ID:              msgid,
+				AdditionalNodes: &extraNodes,
+			},
+		)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("error sending message: %v", err)))
+			return
+		}
+
+		// Publish sent message event to RabbitMQ
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		userID := r.Context().Value("userinfo").(Values).Get("Id")
+		s.publishSentMessageEvent(token, userID, txtid, recipient, msgid, msg, resp.Timestamp)
+
+		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("PIX payment message sent")
+		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
+// SendReviewAndPay sends a Review and Pay order interactive message
+func (s *server) SendReviewAndPay() http.HandlerFunc {
+
+	type orderItem struct {
+		Name       string `json:"Name"`
+		Amount     int    `json:"Amount"`
+		Quantity   int    `json:"Quantity"`
+		ProductId  string `json:"ProductId"`
+		RetailerId string `json:"RetailerId"`
+	}
+	type reviewPayRequest struct {
+		Phone              string      `json:"Phone"`
+		Items              []orderItem `json:"Items"`
+		PaymentType        string      `json:"PaymentType"`
+		Currency           string      `json:"Currency"`
+		TotalValue         int         `json:"TotalValue"`
+		Discount           int         `json:"Discount"`
+		PixKey             string      `json:"PixKey"`
+		PixKeyType         string      `json:"PixKeyType"`
+		MerchantName       string      `json:"MerchantName"`
+		AdditionalNote     string      `json:"AdditionalNote"`
+		PaymentInstruction string      `json:"PaymentInstruction"`
+		ReferenceId        string      `json:"ReferenceId"`
+		Id                 string      `json:"Id,omitempty"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+		if clientManager.GetWhatsmeowClient(txtid) == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		var req reviewPayRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not decode Payload"))
+			return
+		}
+
+		if req.Phone == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing Phone in Payload"))
+			return
+		}
+		if len(req.Items) == 0 {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing Items in Payload"))
+			return
+		}
+
+		recipient, ok := parseJID(req.Phone)
+		if !ok {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("could not parse Phone"))
+			return
+		}
+
+		msgid := req.Id
+		if msgid == "" {
+			msgid = clientManager.GetWhatsmeowClient(txtid).GenerateMessageID()
+		}
+
+		// Defaults
+		currency := req.Currency
+		if currency == "" {
+			currency = "BRL"
+		}
+		paymentType := req.PaymentType
+		if paymentType == "" {
+			paymentType = "pix_static_code"
+		}
+		referenceID := req.ReferenceId
+		if referenceID == "" {
+			referenceID = fmt.Sprintf("RAP%d", time.Now().UnixMilli())
+		}
+
+		// Build order items and compute subtotal
+		orderItems := make([]map[string]interface{}, 0, len(req.Items))
+		subtotal := 0
+		for _, item := range req.Items {
+			qty := item.Quantity
+			if qty <= 0 {
+				qty = 1
+			}
+			subtotal += item.Amount * qty
+
+			entry := map[string]interface{}{
+				"name": item.Name,
+				"amount": map[string]interface{}{
+					"value":  item.Amount,
+					"offset": 100,
+				},
+				"quantity": qty,
+			}
+			if item.ProductId != "" {
+				entry["product_id"] = item.ProductId
+			}
+			if item.RetailerId != "" {
+				entry["retailer_id"] = item.RetailerId
+			}
+			orderItems = append(orderItems, entry)
+		}
+
+		// Auto-calculate total
+		totalValue := req.TotalValue
+		if totalValue == 0 {
+			totalValue = subtotal - req.Discount
+			if totalValue < 0 {
+				totalValue = 0
+			}
+		}
+
+		// Payment settings
+		paymentSettings := []map[string]interface{}{{
+			"type": paymentType,
+		}}
+		if paymentType == "pix_static_code" {
+			paymentSettings[0]["pix_static_code"] = map[string]interface{}{
+				"merchant_name": req.MerchantName,
+				"key":           req.PixKey,
+				"key_type":      strings.ToUpper(req.PixKeyType),
+			}
+		}
+
+		// Order object
+		order := map[string]interface{}{
+			"status": "payment_requested",
+			"subtotal": map[string]interface{}{
+				"value":  subtotal,
+				"offset": 100,
+			},
+			"order_type": "ORDER",
+			"items":      orderItems,
+		}
+		if req.Discount > 0 {
+			order["discount"] = map[string]interface{}{
+				"value":  req.Discount,
+				"offset": 100,
+			}
+		}
+
+		// Full button params
+		buttonParams := map[string]interface{}{
+			"currency":         currency,
+			"payment_settings": paymentSettings,
+			"order":            order,
+			"total_amount": map[string]interface{}{
+				"value":  totalValue,
+				"offset": 100,
+			},
+			"type":         "physical-goods",
+			"reference_id": referenceID,
+		}
+		if req.AdditionalNote != "" {
+			buttonParams["additional_note"] = req.AdditionalNote
+		}
+		if req.PaymentInstruction != "" {
+			buttonParams["external_payment_configurations"] = []map[string]interface{}{
+				{
+					"payment_instruction": req.PaymentInstruction,
+					"type":                "payment_instruction",
+				},
+			}
+		}
+
+		buttonParamsJSON, err := json.Marshal(buttonParams)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("error building payload: %v", err)))
+			return
+		}
+
+		// Build InteractiveMessage protobuf
+		interactiveMsg := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					MessageVersion: proto.Int32(1),
+					Buttons: []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+						{
+							Name:             proto.String("review_and_pay"),
+							ButtonParamsJSON: proto.String(string(buttonParamsJSON)),
+						},
+					},
+				},
+			},
+		}
+
+		// InteractiveMessage directly (NO FutureProofMessage wrapper)
+		msg := &waE2E.Message{InteractiveMessage: interactiveMsg}
+
+		// Biz node: native_flow_name = "order_details" (NOT "review_and_pay")
+		extraNodes := []waBinary.Node{{
+			Tag: "biz",
+			Attrs: waBinary.Attrs{
+				"native_flow_name": "order_details",
+			},
+		}}
+
+		resp, err := clientManager.GetWhatsmeowClient(txtid).SendMessage(
+			context.Background(),
+			recipient,
+			msg,
+			whatsmeow.SendRequestExtra{
+				ID:              msgid,
+				AdditionalNodes: &extraNodes,
+			},
+		)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New(fmt.Sprintf("error sending message: %v", err)))
+			return
+		}
+
+		// Publish sent message event to RabbitMQ
+		token := r.Context().Value("userinfo").(Values).Get("Token")
+		userID := r.Context().Value("userinfo").(Values).Get("Id")
+		s.publishSentMessageEvent(token, userID, txtid, recipient, msgid, msg, resp.Timestamp)
+
+		log.Info().Str("timestamp", fmt.Sprintf("%v", resp.Timestamp)).Str("id", msgid).Msg("Review and Pay message sent")
+		response := map[string]interface{}{"Details": "Sent", "Timestamp": resp.Timestamp.Unix(), "Id": msgid}
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
 // Sends a status text message
 func (s *server) SetStatusMessage() http.HandlerFunc {
 

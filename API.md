@@ -759,6 +759,68 @@ curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"
 
 ---
 
+## Send PIX Payment Message
+
+Sends an interactive PIX payment message. The recipient sees a "Pay with PIX" button that opens a native payment screen.
+
+Endpoint: _/chat/send/pix_
+
+Method: **POST**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| Phone | string | Yes | Recipient phone number or JID |
+| PixKey | string | Yes | PIX key (email, phone, CPF, CNPJ, or EVP) |
+| PixKeyType | string | Yes | Type: `EMAIL`, `PHONE`, `CPF`, `CNPJ`, or `EVP` |
+| MerchantName | string | Yes | Merchant/store display name |
+| DisplayText | string | No | Button text (default: "Pagar com PIX") |
+| Currency | string | No | Currency code (default: "BRL") |
+| Amount | integer | No | Amount in cents (e.g. 10000 = R$100.00) |
+| ItemName | string | No | Product/item name |
+| ReferenceId | string | No | Order reference ID (auto-generated if empty) |
+| Id | string | No | Custom message ID |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"Phone":"5491155554444","PixKey":"email@example.com","PixKeyType":"EMAIL","MerchantName":"My Store","Amount":5999,"ItemName":"Product X"}' http://localhost:8080/chat/send/pix
+```
+
+---
+
+## Send Review and Pay Message
+
+Sends an interactive order summary with line items, totals, discounts, and payment details. The recipient sees a "Review and Pay" button that opens a native order review screen.
+
+Endpoint: _/chat/send/reviewandpay_
+
+Method: **POST**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| Phone | string | Yes | Recipient phone number or JID |
+| Items | array | Yes | Array of order items |
+| Items[].Name | string | Yes | Item name |
+| Items[].Amount | integer | Yes | Item price in cents |
+| Items[].Quantity | integer | No | Quantity (default: 1) |
+| Items[].ProductId | string | No | Product ID |
+| Items[].RetailerId | string | No | Retailer ID |
+| PaymentType | string | No | `pix_static_code` (default) or `upi` |
+| Currency | string | No | Currency code (default: "BRL") |
+| TotalValue | integer | No | Total in cents (auto-calculated if 0) |
+| Discount | integer | No | Discount in cents |
+| PixKey | string | No | PIX key (required if PaymentType = pix_static_code) |
+| PixKeyType | string | No | PIX key type: `EMAIL`, `PHONE`, `CPF`, `CNPJ`, `EVP` |
+| MerchantName | string | No | Merchant name |
+| AdditionalNote | string | No | Note displayed to the buyer |
+| PaymentInstruction | string | No | Payment instructions |
+| ReferenceId | string | No | Order reference ID (auto-generated if empty) |
+| Id | string | No | Custom message ID |
+
+```
+curl -X POST -H 'Token: 1234ABCD' -H 'Content-Type: application/json' --data '{"Phone":"5491155554444","Items":[{"Name":"Smartphone","Amount":99900,"Quantity":1},{"Name":"Case","Amount":2900,"Quantity":2}],"Discount":1000,"PixKey":"email@example.com","PixKeyType":"EMAIL","MerchantName":"My Store"}' http://localhost:8080/chat/send/reviewandpay
+```
+
+---
+
 ## Send Audio Message
 
 Sends an Audio message. Audio must be in Opus format and base64 encoded in embedded format.
